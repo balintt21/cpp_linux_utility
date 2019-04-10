@@ -15,6 +15,12 @@
 
 namespace linux_fs
 {
+    bool exists(const std::string& path)    { struct stat st; return (stat(path.c_str(), &st) == 0);}
+
+    bool is_dir(const std::string& path)   { struct stat st; return ( (stat(path.c_str(), &st) == 0) && S_ISDIR(st.st_mode) ); }
+    
+    bool is_file(const std::string& path)    { struct stat st; return ( (stat(path.c_str(), &st) == 0) && S_ISREG(st.st_mode) ); }
+    
     int list_dir(const std::function<bool (const std::string&)>& yield, const std::string& path, bool recursive = false, bool hidden = false)
     {
         std::queue<std::string> directories;
