@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 
-namespace ipc
+namespace linux_ipc
 {
     /**
      * Tells if the given file descriptor is open and socket type
