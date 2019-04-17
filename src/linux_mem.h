@@ -15,40 +15,61 @@ namespace linux_mem
     {
     private:
         int         mMemoryDeviceFd;
-        size_t      mVirtualSize;
         void*       mVirtualAddress;
-        size_t      mMapSize;
+        uint32_t    mVirtualOffset;
+        uint32_t    mVirtualSize;
+        uint32_t    mMapSize;
         error_t     mError;
-        const bool  mReadOnly;
-    public:
-        PhysicalMemory(off_t offset, size_t size, bool read_only = false) 
-            : mMemoryDeviceFd(-1), mVirtualSize(size), mVirtualAddress(MAP_FAILED), mMapSize(size), mError(0), mReadOnly(read_only)
+    protected:
+        inline void map(uint32_t physical_addr, size_t size, bool read_only)
         {
-            mMemoryDeviceFd = open("/dev/mem", (read_only ? O_RDONLY : O_RDWR));
-            if(mMemoryDeviceFd >= 0)
+            if(mMemoryDeviceFd < 0)
+            { mMemoryDeviceFd = open("/dev/mem", O_RDWR); }
+
+            if(mMemoryDeviceFd > 0)
             {
-                int page_size = getpagesize();
-                size_t remainder = size % page_size;
-                mMapSize = size + ( (remainder > 0) ? (page_size - remainder) : (0) ); 
-                mVirtualAddress = mmap(nullptr, mMapSize, (read_only ? (PROT_READ) : (PROT_READ | PROT_WRITE)), MAP_SHARED, mMemoryDeviceFd, offset );
-                if(mVirtualAddress == MAP_FAILED)
-                { mError = errno; }
-            } 
-            else 
-            { mError = errno; }
+                uint32_t page_size = getpagesize();
+                uint32_t page_mask = std::numeric_limits<uint32_t>::max() + 1 - page_size;
+                uint32_t page_address = (physical_addr & page_mask);
+                uint32_t addr_offset = (physical_addr - page_address);
+                uint32_t map_size = ((size + addr_offset) & page_mask) + page_size;
+                void* virtual_address = mmap(nullptr, map_size, ( read_only ? (PROT_READ) : (PROT_READ | PROT_WRITE) ), MAP_SHARED, mMemoryDeviceFd, page_address);
+                if(virtual_address != MAP_FAILED)
+                {
+                    mVirtualAddress = virtual_address;
+                    mVirtualOffset = addr_offset;
+                    mVirtualSize = size;
+                    mMapSize = map_size;
+                } else {
+                    mError = errno;
+                }
+            }
         }
-        ~PhysicalMemory()
+        inline void unmap()
         { 
             if(mVirtualAddress != MAP_FAILED)
-            { munmap(mVirtualAddress, mMapSize); }
+            { 
+                munmap(mVirtualAddress, mMapSize);
+                mVirtualAddress = MAP_FAILED;
+                mVirtualOffset = 0;
+                mVirtualSize = 0;
+                mMapSize = 0;
+            } 
+        }
+    public:
+        PhysicalMemory(uint32_t physical_addr, size_t size, bool read_only = false)
+            : mMemoryDeviceFd(-1), mVirtualAddress(MAP_FAILED), mVirtualOffset(0), mVirtualSize(0), mMapSize(0), mError(0) 
+        { map(physical_addr, size, read_only); }
+        ~PhysicalMemory() 
+        { 
+            unmap(); 
             if(mMemoryDeviceFd >= 0)
             { close(mMemoryDeviceFd); }
         }
         explicit operator bool() const noexcept { return (mVirtualAddress != MAP_FAILED); }
-        inline const void* get() const noexcept { return mVirtualAddress; }
-        inline void* get() noexcept { return ( !mReadOnly ? mVirtualAddress : nullptr ); }
+        inline void* get() const noexcept { return mVirtualAddress + mVirtualOffset; }
         inline size_t size() const noexcept { return mVirtualSize; }
-        inline error_t error() const noexcept { return mError; }
+        inline bool remap(uint32_t physical_addr, size_t size, bool read_only = false) { unmap(); map(physical_addr, size, read_only); }
     };
 
     class SharedMemory
